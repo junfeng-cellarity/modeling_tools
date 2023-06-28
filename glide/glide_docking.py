@@ -58,12 +58,56 @@ TEMPLATE_DIR = "/home/jfeng/Models/LigandModels"
 OE_PARAM_DIR = "/home/jfeng/Models/OEModels"
 PYMOL_EXE = "/home/jfeng/Programming/pymol/bin/pymol"
 
-
+MACROMODEL = "/opt/schrodinger/installations/default/macromodel -WAIT %s"
 DOCKING_METHOD = "confgen"
 PRECISION = "SP"
 
 NMR_CONVERT = "/home/jfeng/Programming/insilicotools/scripts/python/convert_to_lib.py"
 
+class MacroModelCmd:
+    def __init__(self, keyword, arg1 = 0, arg2 = 0, arg3 = 0, arg4 = 0, arg5 = 0.0, arg6 = 0.0, arg7 = 0.0, arg8 = 0.0):
+        self.keyword = keyword
+        self.arg1 = arg1
+        self.arg2 = arg2
+        self.arg3 = arg3
+        self.arg4 = arg4
+        self.arg5 = arg5
+        self.arg6 = arg6
+        self.arg7 = arg7
+        self.arg8 = arg8
+
+    def get_cmd_line(self):
+        return " %4s "%self.keyword+ " %6d"%self.arg1 + " %6d"%self.arg2 + " %6d"%self.arg3 + " %6d"%self.arg4 +" %10.04f"%self.arg5 + " %10.04f"%self.arg6 + " %10.04f"%self.arg7 + " %10.04f\n"%self.arg8
+
+    @staticmethod
+    def generate_default_com(com_fname, ewindow, rmsd):
+        com_file = open(com_fname,"w")
+        ewindow = ewindow*4.17828
+        commands = []
+        commands.append("input.mae\n")
+        commands.append("output.mae\n")
+        commands.append(MacroModelCmd("DEBG",arg1=55).get_cmd_line())
+        commands.append(MacroModelCmd("FFLD",arg1=16, arg2=1, arg5=1.0).get_cmd_line())
+        commands.append(MacroModelCmd("SOLV",arg1=3,arg2=1).get_cmd_line())
+        commands.append(MacroModelCmd("EXNB").get_cmd_line())
+        commands.append(MacroModelCmd("BDCO",arg5=59.4427, arg6=99999.00000).get_cmd_line())
+        commands.append(MacroModelCmd("READ").get_cmd_line())
+        commands.append(MacroModelCmd("CRMS",arg6=rmsd, arg8=2.0).get_cmd_line())
+        commands.append(MacroModelCmd("LMCS",arg1=1000,arg7=3.0,arg8=6.0).get_cmd_line())
+        commands.append(MacroModelCmd("NANT").get_cmd_line())
+        commands.append(MacroModelCmd("MCNV",arg1=1,arg2=5).get_cmd_line())
+        commands.append(MacroModelCmd("MCSS",arg1=2,arg4=10.0).get_cmd_line())
+        commands.append(MacroModelCmd("MCOP",arg1=1,arg5=0.5).get_cmd_line())
+        commands.append(MacroModelCmd("DEMX",arg2=833,arg5=ewindow, arg6=2*ewindow).get_cmd_line())
+        commands.append(MacroModelCmd("MSYM").get_cmd_line())
+        commands.append(MacroModelCmd("AUOP",arg5=100.0).get_cmd_line())
+        commands.append(MacroModelCmd("AUTO",arg2=1,arg3=1,arg4=1,arg6=1.0).get_cmd_line())
+        commands.append(MacroModelCmd("CONV",arg1=2,arg5=0.05).get_cmd_line())
+        #commands.append(MacroModelCmd("NPRC",arg1=48,arg2=1000).get_cmd_line())
+        commands.append(MacroModelCmd("MULT").get_cmd_line())
+        commands.append(MacroModelCmd("MINI",arg1=1,arg3=2500).get_cmd_line())
+        com_file.writelines(commands)
+        return
 class GlideDockingServer(twisted_xmlrpc.XMLRPC):
     def xmlrpc_generatePymolSession(self, jsonString):
         tmpdir = tempfile.mkdtemp(prefix="pymol_")
@@ -304,7 +348,7 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
 #OE_OMEGA_COMMAND_PARAM = "%s -mpi_np 40 -in %s -out %s -maxConfRange 200,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600 -rangeIncrement 1 -param %s -addtorlib %s -ewindow %f -rms %f "
 
     def xmlrpc_oeconfgen(self,ligandMolString, ewindow, rms):
-        return threads.deferToThread(self.oeconfgen, ligandMolString, ewindow, rms)
+        return threads.deferToThread(self.mmod_confgen, ligandMolString, ewindow, rms)
 
     def xmlrpc_freeform(self, inputSdf):
         return threads.deferToThread(self.freeform_hpc,inputSdf)
@@ -440,7 +484,25 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
         return open(hits_file,"r").read()
 
 
-    def mmod_confgen(self, ligandMolString, ewindow, rms):
+    def mmod_confgen(self, ligandMolString, ewindow, rmsd):
+        mol = next(structure.StructureReader.fromString(ligandMolString, format=structure.SD))
+        tmpdir = tempfile.mkdtemp(prefix="mmod")
+        input_fname = os.path.join(tmpdir,"input.mae")
+        with structure.StructureWriter(input_fname,overwrite=True) as writer:
+            writer.append(mol)
+        writer.close()
+        com_file = os.path.join(tmpdir,"mmod_csearch.com")
+        MacroModelCmd.generate_default_com(com_file, ewindow, rmsd)
+        output_fname = os.path.join(tmpdir,"output.mae")
+        output_sdf = os.path.join(tmpdir,"output.sdf")
+        confgen_command = MACROMODEL%(os.path.basename(com_file))
+        p = subprocess.Popen(confgen_command.split(),stdout=subprocess.PIPE, cwd=tmpdir)
+        p.communicate()
+        with structure.StructureWriter(output_sdf) as sd_writer:
+            for st in structure.StructureReader(output_fname):
+                sd_writer.append(st)
+        sd_writer.close()
+        return open(output_sdf,"r").read()
 
     def oeconfgen(self,ligandMolString, ewindow, rms):
         molUtilities = MolUtilities()
