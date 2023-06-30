@@ -63,7 +63,7 @@ DOCKING_METHOD = "confgen"
 PRECISION = "SP"
 
 NMR_CONVERT = "/home/jfeng/Programming/insilicotools/scripts/python/convert_to_lib.py"
-
+MOKA_COMMAND = "/home/jfeng/MoKa/moka-4.0.9-linux/moka_cli"
 class MacroModelCmd:
     def __init__(self, keyword, arg1 = 0, arg2 = 0, arg3 = 0, arg4 = 0, arg5 = 0.0, arg6 = 0.0, arg7 = 0.0, arg8 = 0.0):
         self.keyword = keyword
@@ -86,6 +86,7 @@ class MacroModelCmd:
         commands = []
         commands.append("input.mae\n")
         commands.append("output.mae\n")
+        #commands.append(MacroModelCmd("NPRC",arg1=48,arg2=1000).get_cmd_line())
         commands.append(MacroModelCmd("DEBG",arg1=55).get_cmd_line())
         commands.append(MacroModelCmd("FFLD",arg1=16, arg2=1, arg5=1.0).get_cmd_line())
         commands.append(MacroModelCmd("SOLV",arg1=3,arg2=1).get_cmd_line())
@@ -103,11 +104,30 @@ class MacroModelCmd:
         commands.append(MacroModelCmd("AUOP",arg5=100.0).get_cmd_line())
         commands.append(MacroModelCmd("AUTO",arg2=1,arg3=1,arg4=1,arg6=1.0).get_cmd_line())
         commands.append(MacroModelCmd("CONV",arg1=2,arg5=0.05).get_cmd_line())
-        #commands.append(MacroModelCmd("NPRC",arg1=48,arg2=1000).get_cmd_line())
         commands.append(MacroModelCmd("MULT").get_cmd_line())
         commands.append(MacroModelCmd("MINI",arg1=1,arg3=2500).get_cmd_line())
         com_file.writelines(commands)
         return
+
+class pKa:
+    def __init__(self, type,value,idx,std):
+        self.type = type
+        self.value = float(value)
+        self.idx = int(idx)
+        self.std = float(std)
+
+    def __str__(self):
+        dict = self.getDict()
+        return json.dumps(dict)
+
+    def getDict(self):
+        dict = {}
+        dict['type'] = self.type
+        dict['value'] = self.value
+        dict['atomid'] = self.idx
+        dict['stddev'] = self.std
+        return dict
+
 class GlideDockingServer(twisted_xmlrpc.XMLRPC):
     def xmlrpc_generatePymolSession(self, jsonString):
         tmpdir = tempfile.mkdtemp(prefix="pymol_")
@@ -352,6 +372,59 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
 
     def xmlrpc_freeform(self, inputSdf):
         return threads.deferToThread(self.freeform_hpc,inputSdf)
+
+    def xmlrpc_Moka(self,inputSdf):
+        result = threads.deferToThread(self.moka, inputSdf)
+        return result
+
+    @staticmethod
+    def parseMokaDescResult(filename):
+        ifs = oemolistream()
+        ifs.open(filename)
+        mol = OEGraphMol()
+        result = {}
+        while OEReadMolecule(ifs, mol):
+            mol_result = {}
+            pka_result = []
+            pka_data = OEGetSDData(mol, "MoKa")
+            if len(pka_data) > 0:
+                p = parse("{molName} {covalent_hydration} - {numPka} {result}", pka_data)
+                if p is not None:
+                    numPka = int(p.named["numPka"])
+                    r = p.named["result"]
+                    arry = r.strip().split(" ")
+                    for i in range(0, numPka):
+                        n = i * 4
+                        pka = pKa(arry[n], arry[n + 1], arry[n + 2], arry[n + 3])
+                        pka_result.append(pka.getDict())
+                    mol_result["pKa"] = pka_result
+            logd_data = OEGetSDData(mol, "MoKa.LogD")
+            if len(logd_data) > 0:
+                lines = logd_data.split("\n")
+                for line in lines:
+                    p = parse("{ph}: {result}", line)
+                    ph = p.named['ph']
+                    mol_result["LogD%s" % ph] = p.named["result"]
+            logp_data = OEGetSDData(mol, "MoKa.LogP")
+            if len(logp_data) > 0:
+                mol_result["MoKa_LogP"] = logp_data
+            mol_id = OEGetSDData(mol, "moka_id")
+            result[mol_id] = mol_result
+        ifs.close()
+        return json.dumps(result)
+
+    def moka(self, inputSdf):
+        tmpdir = tempfile.mkdtemp(prefix="moka_")
+        moka_input = os.path.join(tmpdir,"moka_input.sdf")
+        moka_output = os.path.join(tmpdir,"moka_output.sdf")
+        f = open(moka_input,"w")
+        f.write(inputSdf)
+        f.close()
+        p = subprocess.Popen([MOKA_COMMAND,"-s","moka_id","--show-logp","--show-logd=7.4","-o",moka_output,moka_input])
+        p.communicate()
+        jsonResult = GlideDockingServer.parseMokaResult(moka_output)
+        return jsonResult
+
 
     def freeform_hpc(self,inputSdf):
         import multiprocessing
