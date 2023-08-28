@@ -22,6 +22,7 @@ from molvs.fragment import LargestFragmentChooser
 from molvs.charge import Uncharger
 import re
 import xmlrpc
+from parse import parse
 
 SCHRODINGER = os.getenv("SCHRODINGER")
 OE_DIR = "/home/jfeng/openeye/bin/"
@@ -404,7 +405,7 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
                 for line in lines:
                     p = parse("{ph}: {result}", line)
                     ph = p.named['ph']
-                    mol_result["LogD%s" % ph] = p.named["result"]
+                    mol_result["MoKa_LogD%s" % ph] = p.named["result"]
             logp_data = OEGetSDData(mol, "MoKa.LogP")
             if len(logp_data) > 0:
                 mol_result["MoKa_LogP"] = logp_data
@@ -414,6 +415,7 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
         return json.dumps(result)
 
     def moka(self, inputSdf):
+        inputSdf = base64.decodebytes(bytes(inputSdf, 'utf-8')).decode('utf-8')
         tmpdir = tempfile.mkdtemp(prefix="moka_")
         moka_input = os.path.join(tmpdir,"moka_input.sdf")
         moka_output = os.path.join(tmpdir,"moka_output.sdf")
@@ -422,7 +424,7 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
         f.close()
         p = subprocess.Popen([MOKA_COMMAND,"-s","moka_id","--show-logp","--show-logd=7.4","-o",moka_output,moka_input])
         p.communicate()
-        jsonResult = GlideDockingServer.parseMokaResult(moka_output)
+        jsonResult = GlideDockingServer.parseMokaDescResult(moka_output)
         return jsonResult
 
 
@@ -531,6 +533,12 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
         p = subprocess.Popen(eon_command.split(),stdout=subprocess.PIPE)
         p.communicate()
         return open(hits_file,"r").read()
+
+    def shape_screen_flex(self, refLigandMolString, ligandMolString, ewindow, rms):
+        return
+
+    def shape_screen_rigid(self, refLigandMolString, ligandMolString):
+        return
 
     def oe_rocs(self,refLigandMolString, ligandMolString, ewindow, rms):
         tmpdir = tempfile.mkdtemp(prefix="oerocs")
