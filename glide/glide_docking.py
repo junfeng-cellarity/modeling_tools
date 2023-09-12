@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 __author__ = 'jfeng1'
+
+import csv
 import os,glob,tempfile,shutil, subprocess
 import json
 import platform
@@ -65,6 +67,7 @@ PRECISION = "SP"
 
 NMR_CONVERT = "/home/jfeng/Programming/insilicotools/scripts/python/convert_to_lib.py"
 MOKA_COMMAND = "/home/jfeng/MoKa/moka-4.0.9-linux/moka_cli"
+ALOGD_CMD = "python /opt/schrodinger/installations/default/mmshare-v6.1/python/common/ld_protocols/ld_alogD.py -ph %f %s"
 class MacroModelCmd:
     def __init__(self, keyword, arg1 = 0, arg2 = 0, arg3 = 0, arg4 = 0, arg5 = 0.0, arg6 = 0.0, arg7 = 0.0, arg8 = 0.0):
         self.keyword = keyword
@@ -365,6 +368,10 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
         result = threads.deferToThread(self.oe_eon,queryMolString,ligandMolString,ewindow,rmsd)
         return result
 
+    def xmlrpc_alogd(self, ligandMolString):
+        result = threads.deferToThread(self.alogd, ligandMolString)
+        return result
+
 #OE_OMEGA_COMMAND = "%s -mpi_np 40 -in %s -out %s -maxConfRange 200,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600 -rangeIncrement 1 -addtorlib %s"
 #OE_OMEGA_COMMAND_PARAM = "%s -mpi_np 40 -in %s -out %s -maxConfRange 200,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600 -rangeIncrement 1 -param %s -addtorlib %s -ewindow %f -rms %f "
 
@@ -584,6 +591,31 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
                 sd_writer.append(st)
         sd_writer.close()
         return open(output_sdf,"r").read()
+
+    #ALOGD_CMD = "python /opt/schrodinger/installations/default/mmshare-v6.1/python/common/ld_protocols/ld_alogD.py -ph %f %s"
+    def alogd(self, ligandMolString, pH=7.4):
+        print(ligandMolString)
+        tmpdir = tempfile.mkdtemp(prefix="logd")
+        input_fname = os.path.join(tmpdir, "input.sdf")
+        with structure.StructureWriter(input_fname,overwrite=True) as writer:
+            for st in structure.StructureReader.fromString(ligandMolString,format=structure.SD):
+                writer.append(st)
+        alogd_command = ALOGD_CMD%(pH, input_fname)
+        p = subprocess.Popen(alogd_command.split(),stdout=subprocess.PIPE, cwd=tmpdir)
+        p.communicate()
+        result_csv = os.path.join(tmpdir,"results.csv")
+        result_dict = {}
+        with open(result_csv) as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                try:
+                    id = row['Corporate ID']
+                    logd = float(row['AlogD Custom pH'])
+                    result_dict[id] = logd
+                except:
+                    pass
+        print(result_dict)
+        return json.dumps(result_dict)
 
     def oeconfgen(self,ligandMolString, ewindow, rms):
         molUtilities = MolUtilities()
