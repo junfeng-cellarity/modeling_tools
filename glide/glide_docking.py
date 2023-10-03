@@ -12,7 +12,8 @@ from twisted.web import xmlrpc as twisted_xmlrpc
 from twisted.internet import threads
 from glide_utilities import MolUtilities
 from openeye.oechem import *
-from schrodinger.structutils.minimize import *
+import schrodinger.forcefield.minimizer as minimizer
+from schrodinger.forcefield.ffld_options import *
 from schrodinger import structure
 import base64
 from parse_mopac import MOPAC
@@ -215,6 +216,10 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
         result = threads.deferToThread(self.minimize_structure,mol_string_3d)
         return result
 
+    def xmlrpc_minimize_structure_fixed(self, mol_string_3d, idList):
+        result = threads.deferToThread(self.minimize_structure_fixed, mol_string_3d, idList)
+        return result
+
     def xmlrpc_szybki(self,mol_string_3d):
         return threads.deferToThread(self.oe_minimize_structure,mol_string_3d)
 
@@ -266,9 +271,26 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
 
     def minimize_structure(self, mol_string_3d):
         mol = next(structure.StructureReader.fromString(mol_string_3d,format=structure.SD))
-        minimize_structure(mol,ffld_version=OPLS3,gradient_criterion=0.01)
+        min_options = MinimizationOptions(gradient_convergence=0.05)
+        minimizer.minimize_structure(mol,options=min_options)
         molstring_min = mol.writeToString(structure.SD)
         return molstring_min
+
+    def minimize_structure_fixed(self, mol_string_3d, idListStr):
+        if len(idListStr) == 0:
+            return self.minimize_structure(mol_string_3d)
+        else:
+            atom_list = []
+            for idStr in idListStr.split(","):
+                atom_list.append(int(idStr)+1)
+            mol = next(structure.StructureReader.fromString(mol_string_3d, format=structure.SD))
+            atomIndices = mol.getAtomIndices()
+            atom_list_to_optimize = []
+            for atomId in atomIndices:
+                if atomId not in atom_list:
+                    atom_list_to_optimize.append(mol.atom[atomId])
+            minimizer.minimize_substructure(mol, atom_list_to_optimize)
+            return mol.writeToString(structure.SD)
 
     def oe_minimize_structure(self,mol_string_3d):
         tmpdir = tempfile.mkdtemp(prefix="szybki")
