@@ -65,7 +65,8 @@ PYMOL_EXE = "/home/jfeng/Programming/pymol/bin/pymol"
 MACROMODEL = "/opt/schrodinger/installations/default/macromodel -WAIT %s"
 DOCKING_METHOD = "confgen"
 PRECISION = "SP"
-
+SHAPE_SCREEN_FLEX = "/opt/schrodinger/installations/default/shape_screen -WAIT -flex -flexSearchMethod thorough -flexMaxConfs %d -flexMaxRelEnergy %f -shape %s -screen %s -JOB %s"
+SHAPE_SCREEN_RIGID = "/opt/schrodinger/installations/default/shape_screen -WAIT -distinct -shape %s -screen %s -JOB %s"
 NMR_CONVERT = "/home/jfeng/Programming/insilicotools/scripts/python/convert_to_lib.py"
 MOKA_COMMAND = "/home/jfeng/MoKa/moka-4.0.9-linux/moka_cli"
 ALOGD_CMD = "python /opt/schrodinger/installations/default/mmshare-v6.1/python/common/ld_protocols/ld_alogD.py -ph %f %s"
@@ -107,10 +108,38 @@ class MacroModelCmd:
         commands.append(MacroModelCmd("DEMX",arg2=833,arg5=ewindow, arg6=2*ewindow).get_cmd_line())
         commands.append(MacroModelCmd("MSYM").get_cmd_line())
         commands.append(MacroModelCmd("AUOP",arg5=100.0).get_cmd_line())
-        commands.append(MacroModelCmd("AUTO",arg2=1,arg3=1,arg4=1,arg6=1.0).get_cmd_line())
-        commands.append(MacroModelCmd("CONV",arg1=2,arg5=0.05).get_cmd_line())
+        commands.append(MacroModelCmd("AUTO",arg2=1,arg3=1,arg4=1,arg6=1.0,arg8=8).get_cmd_line())
+        commands.append(MacroModelCmd("CONV",arg1=2,arg5=0.01).get_cmd_line())
         commands.append(MacroModelCmd("MULT").get_cmd_line())
         commands.append(MacroModelCmd("MINI",arg1=1,arg3=2500).get_cmd_line())
+        com_file.writelines(commands)
+        return
+    @staticmethod
+    def generate_fast_com(com_fname, ewindow, rmsd):
+        com_file = open(com_fname,"w")
+        ewindow = ewindow*4.17828
+        commands = []
+        commands.append("input.mae\n")
+        commands.append("output.mae\n")
+        #commands.append(MacroModelCmd("NPRC",arg1=48,arg2=1000).get_cmd_line())
+        commands.append(MacroModelCmd("DEBG",arg1=55).get_cmd_line())
+        commands.append(MacroModelCmd("FFLD",arg1=16, arg2=1, arg5=1.0).get_cmd_line())
+        commands.append(MacroModelCmd("SOLV",arg1=3,arg2=1).get_cmd_line())
+        commands.append(MacroModelCmd("EXNB").get_cmd_line())
+        commands.append(MacroModelCmd("BDCO",arg5=89.4427, arg6=99999.00000).get_cmd_line())
+        commands.append(MacroModelCmd("READ").get_cmd_line())
+        commands.append(MacroModelCmd("CRMS",arg6=rmsd, arg8=2.0).get_cmd_line())
+        commands.append(MacroModelCmd("MCMM",arg1=1000).get_cmd_line())
+        commands.append(MacroModelCmd("NANT").get_cmd_line())
+        commands.append(MacroModelCmd("MCNV",arg1=1,arg2=5).get_cmd_line())
+        commands.append(MacroModelCmd("MCSS",arg1=2,arg4=21.0).get_cmd_line())
+        commands.append(MacroModelCmd("MCOP",arg1=1).get_cmd_line())
+        commands.append(MacroModelCmd("DEMX",arg2=833,arg5=ewindow, arg6=2*ewindow).get_cmd_line())
+        commands.append(MacroModelCmd("MSYM").get_cmd_line())
+        commands.append(MacroModelCmd("AUOP",arg5=100.0).get_cmd_line())
+        commands.append(MacroModelCmd("AUTO",arg2=1,arg3=1,arg4=1,arg6=1.0,arg8=8).get_cmd_line())
+        commands.append(MacroModelCmd("CONV",arg1=2,arg5=0.05).get_cmd_line())
+        commands.append(MacroModelCmd("MINI",arg1=1,arg3=500).get_cmd_line())
         com_file.writelines(commands)
         return
 
@@ -120,6 +149,7 @@ class pKa:
         self.value = float(value)
         self.idx = int(idx)
         self.std = float(std)
+
 
     def __str__(self):
         dict = self.getDict()
@@ -386,6 +416,14 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
         result = threads.deferToThread(self.oe_rocs, queryMolString,ligandMolString,ewindow,rmsd)
         return result
 
+    def xmlrpc_shape_screen_flex(self, queryMolString, ligandMolString, ewindow, rmsd):
+        result = threads.deferToThread(self.shape_screen_flex, queryMolString, ligandMolString, ewindow, rmsd)
+        return result
+
+    def xmlrpc_shape_screen_rigid(self, queryMolString, ligandMolString):
+        result = threads.deferToThread(self.shape_screen_rigid, queryMolString, ligandMolString)
+        return result
+
     def xmlrpc_oe_eon(self,queryMolString,ligandMolString,ewindow,rmsd):
         result = threads.deferToThread(self.oe_eon,queryMolString,ligandMolString,ewindow,rmsd)
         return result
@@ -563,11 +601,83 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
         p.communicate()
         return open(hits_file,"r").read()
 
-    def shape_screen_flex(self, refLigandMolString, ligandMolString, ewindow, rms):
-        return
+    #SHAPE_SCREEN_FLEX = "/opt/schrodinger/installations/default/shape_screen -WAIT -flex -flexSearchMethod thorough -flexMaxConfs %d -flexMaxRelEnergy %f -shape %s -screen %s -JOB %s"
 
+    def shape_screen_flex(self, refLigandMolString, ligandMolString, ewindow, rmsd):
+        tmpdir = tempfile.mkdtemp(prefix="ssflex")
+        query_file = os.path.join(tmpdir,"query.sdf")
+        f = open(query_file,"w")
+        f.write(refLigandMolString)
+        f.close()
+
+        target_file = os.path.join(tmpdir,"target.sdf")
+        s_writer = structure.StructureWriter(target_file, format=structure.SD)
+        for st in structure.StructureReader.fromString(ligandMolString,format=structure.SD):
+            #print(st.has3dCoords())
+            if not st.has3dCoords():
+                st.generate3dConformation()
+            #print(st.writeToString(format=structure.SD))
+            s_writer.append(st)
+        s_writer.close()
+
+        allMolStr = self.mmod_confgen(open(target_file,"r").read(),ewindow,rmsd,fast=True)
+        return self.shape_screen_rigid(refLigandMolString,allMolStr)
+
+        # """
+        # job_name = os.path.join(tmpdir,"my_result")
+        # result_fname = "%s_align.maegz"%job_name
+        # sdf_name = "%s.sdf"%job_name
+        # flag_fname = "%s_shape.okay"%job_name
+        # shape_command = SHAPE_SCREEN_FLEX%(1000, ewindow, query_file, target_file, job_name)
+        # p = subprocess.Popen(shape_command.split(), stdout=subprocess.PIPE)
+        # p.communicate()
+        # if os.path.exists(flag_fname):
+        #     with structure.StructureWriter(sdf_name) as writer:
+        #         with structure.StructureReader(result_fname) as reader:
+        #             for st in reader:
+        #                 writer.append(st)
+        #         reader.close()
+        #     writer.close()
+        #     return open(sdf_name,"r").read()
+        # return ""
+        # """
+
+    #SHAPE_SCREEN_RIGID = "/opt/schrodinger/installations/default/shape_screen -WAIT -distinct -shape %s -screen %s -JOB %s"
     def shape_screen_rigid(self, refLigandMolString, ligandMolString):
-        return
+        tmpdir = tempfile.mkdtemp(prefix="ss_rigid")
+        query_file = os.path.join(tmpdir,"query.sdf")
+        f = open(query_file,"w")
+        f.write(refLigandMolString)
+        f.close()
+
+        target_file = os.path.join(tmpdir,"target.sdf")
+        s_writer = structure.StructureWriter(target_file, format=structure.SD)
+        for st in structure.StructureReader.fromString(ligandMolString,format=structure.SD):
+            #print(st.has3dCoords())
+            if not st.has3dCoords():
+                st.generate3dConformation()
+            #print(st.writeToString(format=structure.SD))
+            s_writer.append(st)
+        s_writer.close()
+
+        job_name = os.path.join(tmpdir,"my_result")
+        result_fname = "%s_align.maegz"%job_name
+        flag_fname = "%s_shape.okay"%job_name
+        sdf_name = "%s.sdf" % job_name
+        shape_command = SHAPE_SCREEN_RIGID%(query_file, target_file, job_name)
+        p = subprocess.Popen(shape_command.split(), stdout=subprocess.PIPE)
+        p.communicate()
+        if os.path.exists(flag_fname):
+            with structure.StructureWriter(sdf_name) as writer:
+                with structure.StructureReader(result_fname) as reader:
+                    for st in reader:
+                        writer.append(st)
+                reader.close()
+            writer.close()
+            return open(sdf_name,"r").read()
+        else:
+            print("Rigid failed.")
+            return ""
 
     def oe_rocs(self,refLigandMolString, ligandMolString, ewindow, rms):
         tmpdir = tempfile.mkdtemp(prefix="oerocs")
@@ -594,15 +704,19 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
         return open(hits_file,"r").read()
 
 
-    def mmod_confgen(self, ligandMolString, ewindow, rmsd):
-        mol = next(structure.StructureReader.fromString(ligandMolString, format=structure.SD))
+    def mmod_confgen(self, ligandMolString, ewindow, rmsd, fast=False):
+        #mol = next(structure.StructureReader.fromString(ligandMolString, format=structure.SD))
         tmpdir = tempfile.mkdtemp(prefix="mmod")
         input_fname = os.path.join(tmpdir,"input.mae")
         with structure.StructureWriter(input_fname,overwrite=True) as writer:
-            writer.append(mol)
+            for mol in structure.StructureReader.fromString(ligandMolString,format=structure.SD):
+                writer.append(mol)
         writer.close()
         com_file = os.path.join(tmpdir,"mmod_csearch.com")
-        MacroModelCmd.generate_default_com(com_file, ewindow, rmsd)
+        if fast:
+            MacroModelCmd.generate_fast_com(com_file,ewindow,rmsd)
+        else:
+            MacroModelCmd.generate_default_com(com_file, ewindow, rmsd)
         output_fname = os.path.join(tmpdir,"output.mae")
         output_sdf = os.path.join(tmpdir,"output.sdf")
         confgen_command = MACROMODEL%(os.path.basename(com_file))
