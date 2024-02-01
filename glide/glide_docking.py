@@ -730,7 +730,7 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
 
     #ALOGD_CMD = "python /opt/schrodinger/installations/default/mmshare-v6.1/python/common/ld_protocols/ld_alogD.py -ph %f %s"
     def alogd(self, ligandMolString, pH=7.4):
-        print(ligandMolString)
+        #print(ligandMolString)
         tmpdir = tempfile.mkdtemp(prefix="logd")
         input_fname = os.path.join(tmpdir, "input.sdf")
         with structure.StructureWriter(input_fname,overwrite=True) as writer:
