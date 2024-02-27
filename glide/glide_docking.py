@@ -878,9 +878,13 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
 
         glide_input = os.path.join(tmpdir,"glide_docking.in")
         inputfile = open(glide_input,"w")
+        inputfile.write("EXPANDED_SAMPLING\tTrue\n")
         inputfile.write("GRIDFILE\t%s\n"%os.path.join(tmpdir,"grid.zip"))
+        inputfile.write("FORCEFIELD\tOPLS4\n")
         inputfile.write("DOCKING_METHOD\t%s\n"%docking_method)
         inputfile.write("PRECISION\t%s\n"%precision)
+        inputfile.write("NENHANCED_SAMPLING\t4\n")
+        inputfile.write("RINGCONFCUT\t1.5\n")
         inputfile.write("LIGANDFILE\t%s\n"%(os.path.join(tmpdir,"ligand.sdf")))
         inputfile.write("POSES_PER_LIG\t%s\n"%poses_per_ligand)
         if use_ref:
