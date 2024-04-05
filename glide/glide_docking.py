@@ -60,7 +60,7 @@ OE_EON = "%s/eon -mpi_np 24 -fixpka_query false -fixpka_dbase false -bestHits 0 
 DOCK_GRID_DIR = "/home/jfeng/Models/DockingModels"
 TEMPLATE_DIR = "/home/jfeng/Models/LigandModels"
 OE_PARAM_DIR = "/home/jfeng/Models/OEModels"
-PYMOL_EXE = "/home/jfeng/Programming/pymol/bin/pymol"
+PYMOL_EXE = "/home/jfeng/anaconda3/envs/pymol/bin/pymol"
 
 MACROMODEL = "/opt/schrodinger/installations/default/macromodel -WAIT %s"
 DOCKING_METHOD = "confgen"
@@ -70,6 +70,9 @@ SHAPE_SCREEN_RIGID = "/opt/schrodinger/installations/default/shape_screen -WAIT 
 NMR_CONVERT = "/home/jfeng/Programming/insilicotools/scripts/python/convert_to_lib.py"
 MOKA_COMMAND = "/home/jfeng/MoKa/moka-4.0.9-linux/moka_cli"
 ALOGD_CMD = "python /opt/schrodinger/installations/default/mmshare-v6.1/python/common/ld_protocols/ld_alogD.py -ph %f %s"
+#CONFGEN = "/opt/schrodinger/installations/default/confgenx %s -wait -optimize True -force_field S-OPLS -num_conformers %s -max_num_conformers %s -JOBNAME %s"
+CONFGEN = "/opt/schrodinger/installations/default/confgenx %s -optimize -force_field S-OPLS -n 250 -m 250 -t 15 -NOJOBID -WAIT -j myjob"
+
 class MacroModelCmd:
     def __init__(self, keyword, arg1 = 0, arg2 = 0, arg3 = 0, arg4 = 0, arg5 = 0.0, arg6 = 0.0, arg7 = 0.0, arg8 = 0.0):
         self.keyword = keyword
@@ -97,9 +100,9 @@ class MacroModelCmd:
         commands.append(MacroModelCmd("FFLD",arg1=16, arg2=1, arg5=1.0).get_cmd_line())
         commands.append(MacroModelCmd("SOLV",arg1=3,arg2=1).get_cmd_line())
         commands.append(MacroModelCmd("EXNB").get_cmd_line())
-        commands.append(MacroModelCmd("BDCO",arg5=59.4427, arg6=99999.00000).get_cmd_line())
+        commands.append(MacroModelCmd("BDCO",arg5=89.4427, arg6=99999.00000).get_cmd_line())
         commands.append(MacroModelCmd("READ").get_cmd_line())
-        commands.append(MacroModelCmd("CRMS",arg6=rmsd, arg8=2.0).get_cmd_line())
+        commands.append(MacroModelCmd("CRMS",arg6=rmsd).get_cmd_line())
         commands.append(MacroModelCmd("LMCS",arg1=1000,arg7=3.0,arg8=6.0).get_cmd_line())
         commands.append(MacroModelCmd("NANT").get_cmd_line())
         commands.append(MacroModelCmd("MCNV",arg1=1,arg2=5).get_cmd_line())
@@ -108,7 +111,7 @@ class MacroModelCmd:
         commands.append(MacroModelCmd("DEMX",arg2=833,arg5=ewindow, arg6=2*ewindow).get_cmd_line())
         commands.append(MacroModelCmd("MSYM").get_cmd_line())
         commands.append(MacroModelCmd("AUOP",arg5=100.0).get_cmd_line())
-        commands.append(MacroModelCmd("AUTO",arg2=1,arg3=1,arg4=1,arg6=1.0,arg8=8).get_cmd_line())
+        commands.append(MacroModelCmd("AUTO",arg2=2,arg3=1,arg4=1,arg6=1.0,arg8=1).get_cmd_line())
         commands.append(MacroModelCmd("CONV",arg1=2,arg5=0.01).get_cmd_line())
         commands.append(MacroModelCmd("MULT").get_cmd_line())
         commands.append(MacroModelCmd("MINI",arg1=1,arg3=2500).get_cmd_line())
@@ -712,16 +715,18 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
             for mol in structure.StructureReader.fromString(ligandMolString,format=structure.SD):
                 writer.append(mol)
         writer.close()
-        com_file = os.path.join(tmpdir,"mmod_csearch.com")
         if fast:
-            MacroModelCmd.generate_fast_com(com_file,ewindow,rmsd)
+#            CONFGEN = "/opt/schrodinger/installations/default/confgenx %s -optimize -force_field S-OPLS -n 250 -m 250 -t 15 -WAIT -JOBNAME myjob"
+            confgen_command = CONFGEN%(input_fname)
+            output_fname = os.path.join(tmpdir, "myjob-out.maegz")
         else:
+            com_file = os.path.join(tmpdir, "mmod_csearch.com")
             MacroModelCmd.generate_default_com(com_file, ewindow, rmsd)
-        output_fname = os.path.join(tmpdir,"output.mae")
-        output_sdf = os.path.join(tmpdir,"output.sdf")
-        confgen_command = MACROMODEL%(os.path.basename(com_file))
+            confgen_command = MACROMODEL%(os.path.basename(com_file))
+            output_fname = os.path.join(tmpdir,"output.mae")
         p = subprocess.Popen(confgen_command.split(),stdout=subprocess.PIPE, cwd=tmpdir)
         p.communicate()
+        output_sdf = os.path.join(tmpdir,"output.sdf")
         with structure.StructureWriter(output_sdf) as sd_writer:
             for st in structure.StructureReader(output_fname):
                 sd_writer.append(st)
