@@ -106,7 +106,7 @@ class MacroModelCmd:
         commands.append(MacroModelCmd("LMCS",arg1=1000,arg7=3.0,arg8=6.0).get_cmd_line())
         commands.append(MacroModelCmd("NANT").get_cmd_line())
         commands.append(MacroModelCmd("MCNV",arg1=1,arg2=5).get_cmd_line())
-        commands.append(MacroModelCmd("MCSS",arg1=2,arg4=10.0).get_cmd_line())
+        commands.append(MacroModelCmd("MCSS",arg1=2,arg5=21.0).get_cmd_line())
         commands.append(MacroModelCmd("MCOP",arg1=1,arg5=0.5).get_cmd_line())
         commands.append(MacroModelCmd("DEMX",arg2=833,arg5=ewindow, arg6=2*ewindow).get_cmd_line())
         commands.append(MacroModelCmd("MSYM").get_cmd_line())
@@ -405,9 +405,9 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
         except:
             return "Wrong template name!"
 
-    def xmlrpc_docking(self,grid_dir,ligandMolString, poses_per_ligand, docking_method, precision, use_ref = False, refLigandStr = None,
+    def xmlrpc_docking(self,grid_dir,ligandMolString, poses_per_ligand, docking_method, precision, use_macrocycle, use_ref = False, refLigandStr = None,
                        core_atoms = None, core_smarts = None):
-        result = threads.deferToThread(self.docking, grid_dir,ligandMolString,poses_per_ligand,docking_method, precision, use_ref,
+        result = threads.deferToThread(self.docking, grid_dir,ligandMolString,poses_per_ligand,docking_method, precision, use_macrocycle, use_ref,
                                        refLigandStr, core_atoms, core_smarts)
         return result
 
@@ -438,8 +438,8 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
 #OE_OMEGA_COMMAND = "%s -mpi_np 40 -in %s -out %s -maxConfRange 200,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600 -rangeIncrement 1 -addtorlib %s"
 #OE_OMEGA_COMMAND_PARAM = "%s -mpi_np 40 -in %s -out %s -maxConfRange 200,200,300,400,500,600,700,800,900,1000,1100,1200,1300,1400,1500,1600 -rangeIncrement 1 -param %s -addtorlib %s -ewindow %f -rms %f "
 
-    def xmlrpc_oeconfgen(self,ligandMolString, ewindow, rms):
-        return threads.deferToThread(self.mmod_confgen, ligandMolString, ewindow, rms)
+    def xmlrpc_oeconfgen(self,ligandMolString, ewindow, rms, mode):
+        return threads.deferToThread(self.mmod_confgen, ligandMolString, ewindow, rms, mode=="fast")
 
     def xmlrpc_freeform(self, inputSdf):
         return threads.deferToThread(self.freeform_hpc,inputSdf)
@@ -850,7 +850,7 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
         shutil.rmtree(tmpdir,ignore_errors=True)
         return json.dumps(rs)
 
-    def docking(self,grid_dir,ligandMolString, poses_per_ligand, docking_method, precision, use_ref,
+    def docking(self,grid_dir,ligandMolString, poses_per_ligand, docking_method, precision, use_macrocycle, use_ref,
                 refLigandStr, core_atoms, core_smarts):
 
         molUtilities = MolUtilities()
@@ -888,6 +888,8 @@ class GlideDockingServer(twisted_xmlrpc.XMLRPC):
         inputfile.write("FORCEFIELD\tOPLS4\n")
         inputfile.write("DOCKING_METHOD\t%s\n"%docking_method)
         inputfile.write("PRECISION\t%s\n"%precision)
+        if use_macrocycle:
+            inputfile.write("MACROCYCLE\tTrue\n")
         inputfile.write("NENHANCED_SAMPLING\t4\n")
         inputfile.write("RINGCONFCUT\t1.5\n")
         inputfile.write("LIGANDFILE\t%s\n"%(os.path.join(tmpdir,"ligand.sdf")))
